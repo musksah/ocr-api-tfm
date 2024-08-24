@@ -3,17 +3,24 @@ from fastapi.responses import HTMLResponse
 from paddleocr import PaddleOCR
 from fastapi.responses import JSONResponse
 import os, re, cv2
+from rapidfuzz import fuzz
+from rapidfuzz import process
 
 app = FastAPI()
 
-@app.post("/uploadfile/")
-async def create_upload_file(file: UploadFile = File(...)):
+# Diccionario de ingredientes
+ingredient_dict = ['Leche semidescremada', 'sal', 'harina', 'huevo', 'leche', 'Cloruro de calcio', 'azucar', 'malta', 'maiz']
 
-    img_path = f"./{file.filename}"
+@app.post("/process_images/")
+async def create_upload_files(files: list[UploadFile] = File(...)):
+
+    img_ingredients = files[0]
+
+    img_path = f"./{img_ingredients.filename}"
 
     # Guardar archivo
     with open(img_path, "wb") as f:
-         f.write(await file.read())
+         f.write(await img_ingredients.read())
 
     # Leer la imagen con OpenCV
     img = cv2.imread(img_path)
@@ -22,46 +29,52 @@ async def create_upload_file(file: UploadFile = File(...)):
     gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # Guardar la imagen en blanco y negro
-    bw_img_path = f"./bw_{file.filename}"
+    bw_img_path = f"./bw_{img_ingredients.filename}"
     cv2.imwrite(bw_img_path, gray_img)
-
     # Inicializar el modelo OCR
     ocr_model = PaddleOCR(lang='en')
 
     # Obtener el texto de la imagen
     result = ocr_model.ocr(bw_img_path)
+    print("Result: ")
 
-    # El output de paddleocr que has proporcionado
-    ocr_output = result[0]
+    text_list = arrange_text(result[0])
 
-    # Eliminar los archivos después de procesarlos
-    os.remove(img_path)
-    os.remove(bw_img_path)
+    result = search_ingredients(text_list)
+    result_example = {
+        "nova": 3,
+        "diabetes_risk": "Medio"
+    }
+    return JSONResponse(content=result_example)
 
-    # Lista para almacenar los ingredientes
-    ingredientes = []
 
-    # Bandera para indicar si estamos en la sección de ingredientes
-    en_ingredientes = False
+def search_ingredients(data):
+    matches = set()
+    for word in data:
+        if word in ingredient_dict:
+            matches.add(word)
+        else:
+            match = process.extractOne(word, ingredient_dict, scorer=fuzz.ratio)
+            if match and match[1] >= 60:
+                matches.add(match[0])
+    return list(matches)
 
-    # Palabras clave para identificar la sección de ingredientes
-    keywords = ["INGREDIENTES"]
 
-    # Recorre las detecciones del OCR
-    for item in ocr_output:
-        texto = item[1][0]
-        if any(keyword in texto for keyword in keywords):
-            en_ingredientes = True
-        if en_ingredientes:
-            ingredientes.append(texto)
-        # Verificar si hemos llegado al final de la sección de ingredientes
-        if en_ingredientes and texto.endswith("."):
-            en_ingredientes = False
-            break
+def arrange_text(data):
+    # Array de resultado
+    result_texts = []
 
-    # Unir los ingredientes en una sola cadena y luego dividirlos por comas
-    ingredientes_completos = " ".join(ingredientes)
-    lista_ingredientes = re.split(r',\s*', ingredientes_completos)
-
-    return JSONResponse(content=lista_ingredientes)
-
+    hasIngredients = False
+    # Iterar sobre cada elemento de la lista
+    for item in data:
+        #Acceder al texto
+        text = item[1][0]
+        if(hasIngredients):
+            separated_texts = re.split(r'[,:().]', text.lower())
+            result_texts.extend(separated_texts)
+        else:
+            hasIngredients = "ingredientes" in text.lower() 
+            if hasIngredients:
+                separated_texts = re.split(r'[,:().]', text.lower())
+                result_texts.extend(separated_texts)
+    return result_texts

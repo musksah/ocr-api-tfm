@@ -11,6 +11,8 @@ import nltk
 from nltk import word_tokenize, pos_tag
 from nltk.corpus import wordnet
 import json
+from utils import ModelInputGenerator
+from itertools import chain
 
 
 # Descargar los recursos necesarios
@@ -22,6 +24,8 @@ nltk.download('wordnet')
 nltk.download('omw-1.4')
 
 app = FastAPI()
+inputGenerator = ModelInputGenerator()
+
 
 # Ruta al archivo translations.json
 file_path = 'translations.json'
@@ -75,6 +79,12 @@ async def create_upload_files(files: list[UploadFile] = File(...)):
 
     sugar_percentage = await get_sugar_percentage(img_nutritional_facts, ocr_model)
     ingredients = await get_ingredients(img_ingredients, ocr_model)
+    ingredients = list(set(list(chain(*ingredients))))
+    result = inputGenerator.gen_input_vector(ingredients)
+    print('Ingredientes: ')
+    print(ingredients)
+    print('result: ')
+    print(result)
     #traducción
     #ingredients_translated = translate(ingredients)
 
@@ -152,14 +162,14 @@ async def get_ingredients(img, ocr_model):
     cv2.imwrite(bw_img_path, imagen_erosionada)
     # Obtener el texto de la imagen
     result = ocr_model.ocr(bw_img_path)
-    print("Result ingredients: ")
-    print(result)
+    # print("Result ingredients: ")
+    # print(result)
     os.remove(img_path)
     os.remove(bw_img_path)
     text_list = preprocess_text(result[0])
     final_texts = await translate_ingredients(text_list)
-    print("final_texts: ")
-    print(final_texts)
+    # print("final_texts: ")
+    # print(final_texts)
     return final_texts
 
 

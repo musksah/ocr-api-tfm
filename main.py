@@ -1,3 +1,4 @@
+from http.client import HTTPException
 from fastapi import FastAPI, File, UploadFile, Body
 from fastapi.responses import HTMLResponse
 from paddleocr import PaddleOCR
@@ -11,9 +12,8 @@ import nltk
 from nltk import word_tokenize, pos_tag
 from nltk.corpus import wordnet
 import json
-from utils import ModelInputGenerator
+import requests
 from itertools import chain
-
 
 # Descargar los recursos necesarios
 nltk.download('punkt')
@@ -24,11 +24,11 @@ nltk.download('wordnet')
 nltk.download('omw-1.4')
 
 app = FastAPI()
-inputGenerator = ModelInputGenerator()
 
 
 # Ruta al archivo translations.json
 file_path = 'translations.json'
+url = "https://2572-190-110-43-47.ngrok-free.app/predict"
 
 # Cargar el archivo JSON
 with open(file_path, 'r', encoding='utf-8') as file:
@@ -55,12 +55,10 @@ async def translate_text(texts: List[str]) -> List:
         if item not in translations:    
             result = translate_client.translate(item, target_language="en", source_language="es")
             translations[item] = result["translatedText"]
-            print(f"Agregado: {item} -> {result['translatedText']}")
             results.append((item, result["translatedText"]))
         else:
             existing_value = translations[item]
             results.append((item,existing_value))
-            print(f"'{item}' ya existe, no se agregará.")
     
     # Guardar el archivo JSON actualizado
     with open(file_path, 'w', encoding='utf-8') as file:
@@ -76,42 +74,40 @@ async def create_upload_files(files: list[UploadFile] = File(...)):
     
     # Inicializar el modelo OCR
     ocr_model = PaddleOCR(use_angle_cls=True, lang='es')
+    ocr_model_en = PaddleOCR(use_angle_cls=True, lang='en')
 
-    sugar_percentage = await get_sugar_percentage(img_nutritional_facts, ocr_model)
+    sugar_percentage = await get_sugar_percentage(img_nutritional_facts, ocr_model_en)
     ingredients = await get_ingredients(img_ingredients, ocr_model)
     ingredients = list(set(list(chain(*ingredients))))
-    result = inputGenerator.gen_input_vector(ingredients)
-    print('Ingredientes: ')
-    print(ingredients)
-    print('result: ')
-    print(result)
-    #traducción
-    #ingredients_translated = translate(ingredients)
-
-    #[0,0,0,1]
-
-    #ingredientes_vector = getVector(ingredients_translated)
-
-    reponse = {
-        "ingredients": ingredients,
-        "sugar": sugar_percentage
+    data = {
+        "ingredientlist": ingredients,  # Lista de ingredientes (strings)
+        "sugar": sugar_percentage  # Valor flotante para el campo 'sugar'
     }
 
-    # TODO
-    # result_nova = modelo.predict(ingredientes_vector)
-    # result_impact_diabetes = model_desicion_tree.predict([result_nova, sugar_percentage])
-
-    # response = {
-    #     nova = result_nova,
-    #     impact_diabetes = result_impact_diabetes
-    # }
+    response_predict = requests.post(url, json=data)
 
     result_example = {
         "nova": 3,
         "diabetes_impact": "Medio"
     }
 
-    return JSONResponse(content=result_example)
+    # Verificar si la respuesta fue exitosa
+    if response_predict.status_code == 200:
+        # Obtener el contenido JSON de la respuesta
+        response_json = response_predict.json()
+
+        # Acceder a los valores de la respuesta
+        nova = response_json.get("nova")
+        diabetes_impact = response_json.get("diabetes_impact")
+
+        final_response = {
+            "nova": nova,
+            "diabetes_impact": diabetes_impact
+        }
+        return JSONResponse(content=final_response)
+    else:
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
+    
 
 async def get_sugar_percentage(img, ocr_model):
     img_path = f"./{img.filename}"
@@ -130,6 +126,7 @@ async def get_sugar_percentage(img, ocr_model):
     result_nutritional_facts = ocr_model.ocr(bw_img_path)
 
     text_sugar = extract_total_sugar(result_nutritional_facts[0])
+    
     total_sugar = get_sugar_value(text_sugar)
     
      # Eliminar los archivos después de procesarlos
@@ -162,28 +159,26 @@ async def get_ingredients(img, ocr_model):
     cv2.imwrite(bw_img_path, imagen_erosionada)
     # Obtener el texto de la imagen
     result = ocr_model.ocr(bw_img_path)
-    # print("Result ingredients: ")
-    # print(result)
     os.remove(img_path)
     os.remove(bw_img_path)
     text_list = preprocess_text(result[0])
     final_texts = await translate_ingredients(text_list)
-    # print("final_texts: ")
-    # print(final_texts)
     return final_texts
 
 
 def get_sugar_value(text_sugar):
+    sugar_value = 0
+
     try:
         if(text_sugar):
-            text_sugar.replace("g", "")
-            total_sugar = float(text_sugar)
-            return total_sugar
-        return None
+            text_sugar = text_sugar.replace("g", "")
+            sugar_value = float(text_sugar)
+            return sugar_value
+        return float(sugar_value)
     except Exception as e:
         if(text_sugar):
-            return 0
-        return None
+            return float(sugar_value)
+        return float(sugar_value)
 
 
 def preprocess_text(data):
@@ -224,8 +219,8 @@ def filtrar_textos(textos):
         doc = nlp(texto)
 
         # Imprimir los tipos de tokens y sus etiquetas
-        for token in doc:
-            print(f"Texto original: {texto}, Token: {token.text}, Tipo: {token.pos_}, Etiqueta detallada: {token.tag_}")
+        # for token in doc:
+        #     print(f"Texto original: {texto}, Token: {token.text}, Tipo: {token.pos_}, Etiqueta detallada: {token.tag_}")
 
         # Verificar si el texto contiene verbos
         has_verbs = any(token.pos_ == 'VERB' for token in doc)
@@ -274,8 +269,8 @@ def filtrar_textos_nltk(textos):
             textos_filtrados.append(" ".join(lemmatized_text))
         
         # Imprimir los tipos de tokens y sus etiquetas
-        for word, tag in tagged_tokens:
-            print(f"Texto original: {texto}, Token: {word}, Tipo: {tag}")
+        # for word, tag in tagged_tokens:
+        #     print(f"Texto original: {texto}, Token: {word}, Tipo: {tag}")
     
     return textos_filtrados
 

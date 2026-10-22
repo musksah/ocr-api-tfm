@@ -204,7 +204,7 @@ known problems in the current code:
 
 **Project hygiene**
 
-- No tests, no CI and no license yet.
+- No tests and no CI yet.
 - `utils.py`, `ingredients.pkl` and the spaCy-based `filtrar_textos()` are
   unused. `filtrar_textos()` would also need the `es_core_news_sm` model,
   which is not in `requirements.txt`.
@@ -232,9 +232,15 @@ installation on Linux or macOS. The script used is
   packaging text and branding belong to their owner. They are included only
   as OCR test inputs.
 - `ingredients.pkl` is a plain list of strings with no executable content.
-  Still, only load pickle files you trust.
+  Still, only load pickle files you trust. Its trailing column names
+  (`_id`, `product_name`, `nova_group`) suggest it was built from
+  [Open Food Facts](https://world.openfoodfacts.org/) data. This origin is
+  not confirmed. Open Food Facts data is licensed under the
+  [ODbL](https://opendatacommons.org/licenses/odbl/1-0/), which requires
+  attribution, and the MIT license below does not cover it.
 
 ## License
 
-No license has been chosen yet. Until one is added, the default copyright
-rules apply.
+The code is released under the [MIT License](LICENSE). Third-party content
+described above (product packaging in the sample photos, and any Open Food
+Facts data) keeps its own terms.
